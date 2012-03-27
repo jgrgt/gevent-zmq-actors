@@ -77,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument("--address", "-a", default="0.0.0.0", help="The address the web server should listen on")
     parser.add_argument("--port", "-p", default=8080, type=int, help="The port the web server should listen on")
     parser.add_argument("--request-port", default=5558, dest="request_port", type=int, help="The port the publisher should listen on")
-    parser.add_argument("--response-port", default=5559, dest="response_port", type=int, help="The port the puller should listen on")
+    parser.add_argument("--response-port", default=5560, dest="response_port", type=int, help="The port the puller should listen on")
     args = parser.parse_args()
     requestQ = context.socket(zmq.PUB)
     requestQ.bind("tcp://*:%s" % args.request_port)
