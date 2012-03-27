@@ -1,5 +1,7 @@
+import argparse
+import json
+import urlparse
 import uuid
-import sys
 
 import gevent
 from gevent.pywsgi import WSGIServer
@@ -7,6 +9,12 @@ from gevent.event import AsyncResult
 from gevent_zeromq import zmq
 
 context = zmq.Context()
+
+PATHS = {
+            "/actors/rot13": "rot13",
+            "/actors/md5sum": "md5"
+        }
+
 
 def getBody(env):
     body = ""
@@ -33,9 +41,20 @@ class Application(object):
 
     def handler(self, env, start_response):
         path = env['PATH_INFO']#, env['QUERY_STRING'], accept, start_response, errHandle)
+        if path not in PATHS:
+            start_response("404 Not Found", [("Content-Type", "text/plain")])
+            return ["No actor handles path %s" % path]
+
+        actorName = PATHS[path]
         body = getBody(env)
+        qs = env.get('QUERY_STRING')
+        if qs:
+            params = urlparse.parse_qs(qs)
+        else:
+            params = {}
+
         requestId = generateRequestId()
-        message = [path, requestId, body]
+        message = [actorName, requestId, body, json.dumps(params)]
         log("Sending %s" % message)
         self.requestQ.send_multipart(message)
         ar = AsyncResult()
@@ -48,19 +67,23 @@ class Application(object):
     def waitForResponses(self):
         while True:
             log("Waiting for a response")
-            (address, requestId, response) = self.responseQ.recv_multipart()
+            (requestId, response) = self.responseQ.recv_multipart()
             log("Got response to %s" % requestId)
             ar = self.results.pop(requestId)
             ar.set(response)
 
 if __name__ == "__main__":
-    address = sys.argv[1]
-    port = int(sys.argv[2])
+    parser = argparse.ArgumentParser(description='Serve some resources.')
+    parser.add_argument("--address", "-a", default="0.0.0.0", help="The address the web server should listen on")
+    parser.add_argument("--port", "-p", default=8080, type=int, help="The port the web server should listen on")
+    parser.add_argument("--request-port", default=5558, dest="request_port", type=int, help="The port the publisher should listen on")
+    parser.add_argument("--response-port", default=5559, dest="response_port", type=int, help="The port the puller should listen on")
+    args = parser.parse_args()
     requestQ = context.socket(zmq.PUB)
-    requestQ.bind("tcp://*:5558")
+    requestQ.bind("tcp://*:%s" % args.request_port)
     responseQ = context.socket(zmq.PULL)
-    responseQ.bind("tcp://*:5559")
+    responseQ.bind("tcp://*:%s" % args.response_port)
     app = Application(requestQ, responseQ)
-    server = WSGIServer((address, port), app.handler)
-    print "Listening on %s:%s" % (address, port)
+    server = WSGIServer((args.address, args.port), app.handler)
+    print "Listening on %s:%s" % (args.address, args.port)
     server.serve_forever()
